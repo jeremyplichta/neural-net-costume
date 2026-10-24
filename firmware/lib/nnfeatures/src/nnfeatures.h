@@ -22,7 +22,12 @@
  *                             (0,1) spectral tilt, (0,2) spectral bump, (1,1) tilt change
  *                             over time (low->high or high->low sweeps)
  *
- * Values are NOT normalised here; training computes mean/std and the firmware
+ * Level normalisation: OR NNF_NORMALIZE into any mode to remove recording volume. The
+ * clip's level L = max over frames of ln(sum_b E + 1e-6) is subtracted from every
+ * ln-energy feature (the MEAN bands and the loudness bins), so values mean "dB below the
+ * loudest moment". Pitch bins and the DCT terms are already independent of volume.
+ *
+ * Values are NOT standardised here; training computes mean/std and the firmware
  * applies them.
  */
 #ifndef NNFEATURES_H
@@ -49,9 +54,10 @@ typedef enum {
     NNF_MODE_CONTOURS = 1,
     NNF_MODE_HYBRID = 2
 } nnf_mode_t;
+#define NNF_NORMALIZE 0x10   /* OR with a mode, e.g. NNF_MODE_HYBRID | NNF_NORMALIZE */
 
 /* Extract NNF_NUM_FEATURES values from mono int16 PCM. Not thread-safe (lazy static tables). */
-void nnf_extract(const int16_t *pcm, size_t n_samples, nnf_mode_t mode,
+void nnf_extract(const int16_t *pcm, size_t n_samples, int mode,
                  float out[NNF_NUM_FEATURES]);
 
 #ifdef __cplusplus

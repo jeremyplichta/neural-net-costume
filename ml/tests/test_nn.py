@@ -105,16 +105,18 @@ def args(tmp_path, **kw):
 
 
 def test_training_learns_separable_data(tmp_path):
-    mean, std, ntr, nte = T.run_mode(fake_dataset(), "hybrid", args(tmp_path), verbose=False)
-    assert mean > 0.9 and ntr + nte == 300
+    r = T.run_mode(fake_dataset(), "hybrid", args(tmp_path), verbose=False)
+    assert r["acc"] > 0.9 and r["n_train"] + r["n_test"] == 300
 
 
 def test_holdout_speaker_split_and_training(tmp_path):
     d = fake_dataset()
     tr, te = T.split(d["y"], d["speaker"], holdout="kid")
     assert set(d["speaker"][te]) == {"kid"} and "kid" not in set(d["speaker"][tr])
-    mean, std, ntr, nte = T.run_mode(d, "mean", args(tmp_path, holdout="kid", seeds=2), verbose=False)
-    assert mean > 0.9 and nte == 100
+    r = T.run_mode(d, "mean", args(tmp_path, holdout="kid", seeds=2), verbose=False)
+    assert r["acc"] > 0.9 and r["n_test"] == 100 and len(r["pred"]) == 100
+    r = T.run_mode(d, "mean", args(tmp_path, seeds=1), verbose=False, holdout="wife")  # per-call override
+    assert r["n_test"] == 100
 
 
 def test_wav_to_features_to_model_end_to_end(tmp_path):
@@ -133,9 +135,8 @@ def test_wav_to_features_to_model_end_to_end(tmp_path):
     (wavs / "junk.wav").write_bytes(b"")  # unparseable name must be skipped, not crash
     data = extract_dataset.build(wavs)
     assert data["X_hybrid"].shape == (120, 10) and set(data["speaker"]) == {"", "kid"}
-    mean, std, ntr, nte = T.run_mode(data, "contours", args(tmp_path, epochs=300, holdout="kid"),
-                                     verbose=False)
-    assert mean > 0.9
+    r = T.run_mode(data, "contours", args(tmp_path, epochs=300, holdout="kid"), verbose=False)
+    assert r["acc"] > 0.9
 
 
 def test_parse_name():

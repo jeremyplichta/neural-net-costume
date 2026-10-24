@@ -10,3 +10,6 @@ ml/.build/
 # Derived data and experiment models (regenerate with ml/extract_dataset.py and ml/train.py)
 data/features.npz
 ml/models/*.npz
+# Suspect clips set aside by tools/audit_clips.py (reversible with --restore)
+data/quarantine/*
+!data/quarantine/.gitkeep

@@ -14,7 +14,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "tools"))
 from words import LABELS  # noqa: E402
 
-MODE_ENUM = {"mean": "NNF_MODE_MEAN", "contours": "NNF_MODE_CONTOURS", "hybrid": "NNF_MODE_HYBRID"}
+MODE_ENUM = {"mean": "NNF_MODE_MEAN", "contours": "NNF_MODE_CONTOURS", "hybrid": "NNF_MODE_HYBRID",
+             "mean_norm": "NNF_MODE_MEAN | NNF_NORMALIZE", "contours_norm": "NNF_MODE_CONTOURS | NNF_NORMALIZE",
+             "hybrid_norm": "NNF_MODE_HYBRID | NNF_NORMALIZE"}
 
 
 def fmt(a):

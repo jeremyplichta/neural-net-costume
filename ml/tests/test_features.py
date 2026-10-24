@@ -53,12 +53,15 @@ def dct(g, kt, kf):
 
 def reference(pcm, mode):
     E = mel_energies(pcm)
+    norm = mode.endswith("_norm")
+    mode = mode.removesuffix("_norm")
+    level = np.log(E.sum(axis=1) + 1e-6).max() if norm else 0.0
     if mode == "mean":
-        return np.log(E + 1e-6).mean(axis=0)
+        return np.log(E + 1e-6).mean(axis=0) - level
     if mode == "contours":
-        return np.array(ref_loud(E, 5) + ref_pitch(E, 5))
+        return np.array(np.array(ref_loud(E, 5)) - level).tolist() + ref_pitch(E, 5)
     grid = np.array([np.log(E[s:e] + 1e-6).mean(axis=0) for s, e in bins(N, len(E))])
-    return np.array(ref_loud(E, 4) + ref_pitch(E, 3) +
+    return np.array((np.array(ref_loud(E, 4)) - level).tolist() + ref_pitch(E, 3) +
                     [dct(grid, 0, 1), dct(grid, 0, 2), dct(grid, 1, 1)])
 
 
@@ -117,3 +120,14 @@ def test_silence_is_finite_and_wav_roundtrip(tmp_path):
     from record_samples import save_wav
     save_wav(tmp_path / "x.wav", sil)
     assert (F.read_wav(tmp_path / "x.wav") == sil).all()
+
+
+def test_normalised_modes_ignore_volume_but_raw_modes_do_not():
+    quiet = speech_like()
+    loud = (quiet.astype(np.int32) * 4).clip(-32768, 32767).astype(np.int16)
+    for mode in ("mean", "contours", "hybrid"):
+        raw_gap = np.abs(F.extract(loud, mode) - F.extract(quiet, mode)).max()
+        norm_gap = np.abs(F.extract(loud, mode + "_norm") - F.extract(quiet, mode + "_norm")).max()
+        assert norm_gap < 0.05, mode
+        assert mode == "hybrid" or raw_gap > 1.0, mode  # loudness-based features move with volume
+    assert abs(F.extract(quiet, "contours_norm")[:5].max()) < 0.05  # loudest bin ~ 0 dB

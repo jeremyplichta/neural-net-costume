@@ -71,7 +71,7 @@ static void bin_range(int i, int n_bins, int *start, int *end) {
     *end = (i + 1) * NNF_MAX_FRAMES / n_bins;
 }
 
-static void loudness_bins(float E[][NNF_NUM_FEATURES], int n_bins, float *out) {
+static void loudness_bins(float E[][NNF_NUM_FEATURES], int n_bins, float level, float *out) {
     for (int i = 0; i < n_bins; i++) {
         int s, e;
         bin_range(i, n_bins, &s, &e);
@@ -81,7 +81,7 @@ static void loudness_bins(float E[][NNF_NUM_FEATURES], int n_bins, float *out) {
             for (int b = 0; b < NNF_NUM_FEATURES; b++) tot += E[f][b];
             acc += logf(tot + 1e-6f);
         }
-        out[i] = acc / (e - s);
+        out[i] = acc / (e - s) - level;
     }
 }
 
@@ -116,7 +116,7 @@ static float dct2(float g[NNF_NUM_FEATURES][NNF_NUM_FEATURES], int kt, int kf) {
     return at * af * acc;
 }
 
-void nnf_extract(const int16_t *pcm, size_t n_samples, nnf_mode_t mode,
+void nnf_extract(const int16_t *pcm, size_t n_samples, int mode,
                  float out[NNF_NUM_FEATURES]) {
     if (!s_ready) init_tables();
     float re[NNF_FRAME_SIZE], im[NNF_FRAME_SIZE];
@@ -137,11 +137,24 @@ void nnf_extract(const int16_t *pcm, size_t n_samples, nnf_mode_t mode,
         }
     }
 
+    /* Level of the loudest frame; subtracted from ln-energy features if NNF_NORMALIZE. */
+    float level = 0.0f;
+    if (mode & NNF_NORMALIZE) {
+        level = -1e30f;
+        for (int fr = 0; fr < NNF_MAX_FRAMES; fr++) {
+            float tot = 0.0f;
+            for (int b = 0; b < NNF_NUM_FEATURES; b++) tot += E[fr][b];
+            float l = logf(tot + 1e-6f);
+            if (l > level) level = l;
+        }
+    }
+    mode &= ~NNF_NORMALIZE;
+
     if (mode == NNF_MODE_CONTOURS) {
-        loudness_bins(E, 5, out);
+        loudness_bins(E, 5, level, out);
         pitch_bins(E, 5, out + 5);
     } else if (mode == NNF_MODE_HYBRID) {
-        loudness_bins(E, 4, out);
+        loudness_bins(E, 4, level, out);
         pitch_bins(E, 3, out + 4);
         float grid[NNF_NUM_FEATURES][NNF_NUM_FEATURES];
         for (int t = 0; t < NNF_NUM_FEATURES; t++) {
@@ -160,7 +173,7 @@ void nnf_extract(const int16_t *pcm, size_t n_samples, nnf_mode_t mode,
         for (int b = 0; b < NNF_NUM_FEATURES; b++) {
             float acc = 0.0f;
             for (int fr = 0; fr < NNF_MAX_FRAMES; fr++) acc += logf(E[fr][b] + 1e-6f);
-            out[b] = acc / NNF_MAX_FRAMES;
+            out[b] = acc / NNF_MAX_FRAMES - level;
         }
     }
 }

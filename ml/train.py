@@ -4,6 +4,7 @@
     python ml/train.py                                   # compare mean / contours / hybrid
     python ml/train.py --mode hybrid --holdout wife      # test on a voice it never trained on
     python ml/train.py --mode hybrid --seeds 5           # average over random restarts
+    python ml/train.py --loso                            # hold out each speaker in turn, + confusion matrix
 
 Without --holdout, a random 20% of clips (per word) is held out. Models are saved to
 ml/models/<mode>.npz and can be exported to the ESP32 with ml/export_weights.py.
@@ -65,25 +66,33 @@ def train(X, y, epochs=500, lr=0.01, batch_size=32, seed=0, log=None):
     return model, mean, std
 
 
-def run_mode(data, mode, args, verbose):
-    """Train (possibly several seeds) on one feature mode; returns (mean acc, std, n_train, n_test)."""
+def run_mode(data, mode, args, verbose, holdout=None):
+    """Train (possibly several seeds) on one feature mode.
+
+    Returns dict: acc (mean over seeds), std, n_train, n_test, and y_test / pred for seed 0
+    (pred comes from the C forward pass, i.e. what the ESP32 would say)."""
+    holdout = args.holdout if holdout is None else holdout
     X, y, speaker = data[f"X_{mode}"], data["y"], data["speaker"]
     accs = []
     for seed in range(args.seeds):
-        tr, te = split(y, speaker, args.holdout, seed=seed)
+        tr, te = split(y, speaker, holdout, seed=seed)
         model, mean, std = train(X[tr], y[tr], args.epochs, args.lr, seed=seed,
                                  log=print if verbose and seed == 0 else None)
         if seed == 0:  # keep this model, and score it with the C code the ESP32 will run
             path = args.out_dir / f"{mode}.npz"
             save_model(path, model, mean, std, mode)
             pred = CForward(path).predict(X[te])
-            if verbose:
-                report(y[te], pred)
+            first = (y[te], pred)
         else:
             with torch.no_grad():
                 pred = model(torch.tensor((X[te] - mean) / std, dtype=torch.float32)).argmax(1).numpy()
         accs.append(accuracy(y[te], pred))
-    return float(np.mean(accs)), float(np.std(accs)), len(tr), len(te)
+    return dict(acc=float(np.mean(accs)), std=float(np.std(accs)), n_train=len(tr), n_test=len(te),
+                y_test=first[0], pred=first[1])
+
+
+def speaker_name(s):
+    return s or "jp"  # untagged clips are the first recording session
 
 
 if __name__ == "__main__":
@@ -94,15 +103,36 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int, default=500)
     ap.add_argument("--lr", type=float, default=0.01)
     ap.add_argument("--seeds", type=int, default=1, help="random restarts to average")
+    ap.add_argument("--loso", action="store_true", help="leave-one-speaker-out over every speaker")
     ap.add_argument("--out-dir", type=Path, default=HERE / "models")
     args = ap.parse_args()
 
     data = np.load(args.features)
     modes = list(MODES) if args.mode == "all" else [args.mode]
+
+    if args.loso:
+        speakers = sorted(set(data["speaker"]))
+        print(f"leave-one-speaker-out over {[speaker_name(str(s)) for s in speakers]}")
+        table, pooled = {}, {}
+        for mode in modes:
+            folds = [run_mode(data, mode, args, verbose=False, holdout=s) for s in speakers]
+            table[mode] = [f["acc"] for f in folds]
+            pooled[mode] = (np.concatenate([f["y_test"] for f in folds]),
+                            np.concatenate([f["pred"] for f in folds]))
+        print("\n" + f"{'mode':14s}" + "".join(f"{speaker_name(s):>8s}" for s in speakers) + "     average")
+        for mode, accs in table.items():
+            print(f"{mode:14s}" + "".join(f"{a:8.1%}" for a in accs) + f"   {np.mean(accs):8.1%}")
+        if len(modes) == 1:
+            print("\nAll held-out predictions pooled:")
+            report(*pooled[modes[0]])
+        sys.exit()
+
     results = {}
     for mode in modes:
         print(f"\n=== {mode} ===")
         results[mode] = run_mode(data, mode, args, verbose=len(modes) == 1)
-    print("\nmode        test accuracy   (train / test clips)")
-    for mode, (mean, std, ntr, nte) in results.items():
-        print(f"{mode:10s}  {mean:6.1%} ± {std:4.1%}    ({ntr} / {nte})")
+    if len(modes) == 1:
+        report(results[modes[0]]["y_test"], results[modes[0]]["pred"])
+    print("\nmode            test accuracy   (train / test clips)")
+    for mode, r in results.items():
+        print(f"{mode:14s}  {r['acc']:6.1%} ± {r['std']:4.1%}    ({r['n_train']} / {r['n_test']})")

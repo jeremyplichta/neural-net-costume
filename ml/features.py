@@ -1,12 +1,13 @@
 """Python access to the *same* C feature extractor the ESP32 firmware uses.
 
 Compiles firmware/lib/nnfeatures/src/nnfeatures.c on first use and calls it via ctypes.
-    python ml/features.py [--mode mean|contours|hybrid] data/training/ghost-1.wav
+    python ml/features.py [--mode mean|contours|hybrid[_norm]] data/training/ghost-1.wav
 
 Modes (see nnfeatures.h for the exact definitions); each gives 10 features:
     mean      10 band energies averaged over the clip (no timing)
     contours  5 loudness time-bins + 5 pitch time-bins
     hybrid    4 loudness bins + 3 pitch bins + 3 2D-DCT coefficients
+    <mode>_norm   same, with the recording volume removed (level of loudest frame subtracted)
 """
 import ctypes
 import sys
@@ -22,13 +23,16 @@ NUM_FEATURES = 10
 SAMPLE_RATE = 16000
 CLIP_SAMPLES = 16000
 
-MODES = {"mean": 0, "contours": 1, "hybrid": 2}
+NORMALIZE = 0x10
+MODES = {"mean": 0, "contours": 1, "hybrid": 2,
+         "mean_norm": 0 | NORMALIZE, "contours_norm": 1 | NORMALIZE, "hybrid_norm": 2 | NORMALIZE}
 FEATURE_NAMES = {
     "mean": [f"band{i}" for i in range(10)],
     "contours": [f"loud{i}" for i in range(5)] + [f"pitch{i}" for i in range(5)],
     "hybrid": [f"loud{i}" for i in range(4)] + [f"pitch{i}" for i in range(3)]
     + ["dct_tilt", "dct_bump", "dct_sweep"],
 }
+FEATURE_NAMES.update({f"{m}_norm": FEATURE_NAMES[m] for m in ("mean", "contours", "hybrid")})
 
 _lib = None
 

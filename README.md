@@ -43,10 +43,12 @@ network is deliberately tiny (10-10-10-10 ≈ 300 weights) and the features are 
 tools/       Python helpers (data collection now; feature extraction later)
   record_samples.py   prompt-and-record training clips
   recorder.py         triggered recording with pre-roll (unit-tested)
+  audit_clips.py      flag suspect clips (clipped / weak / late bump); --move quarantines them
   words.py            the vocabulary / emoji / output order
   tests/
 data/
-  training/           recorded clips: <word>-<n>.wav (git-ignored)
+  training/           recorded clips: <word>[-<speaker>]-<n>.wav (git-ignored)
+  quarantine/         clips set aside by tools/audit_clips.py, with manifest.csv (git-ignored)
 ml/          feature extraction, training, evaluation, export (PyTorch)
   features.py         Python wrapper around the firmware's C feature extractor
   extract_dataset.py  wavs -> data/features.npz
@@ -92,7 +94,8 @@ trigger level; default is auto-calibrated from room noise), `-d <device>` /
 Tagging speakers lets us hold one voice out as a test set later.
 
 Tips: vary distance, volume and speaker; record `other` with ordinary chatter, music and
-silence; delete bad clips by hand (just remove the file). Run the tests with
+silence; run `python tools/audit_clips.py` to find clipped / no-signal / bump-only clips (add `--move`
+to quarantine them, `--restore` to undo), or delete bad clips by hand. Run the tests with
 `python -m pytest tools/tests`.
 
 ## Features: one C implementation for training and the ESP32
@@ -113,7 +116,9 @@ Front end (all modes): 1 s of 16 kHz audio -> 61 Hann frames (512, hop 256) -> 1
 
 *Loudness* = mean ln(total band energy) in the bin; *pitch* = energy-weighted mean band index
 scaled 0..1 (0.5 when the bin is >20 dB below the loudest, so silence doesn't produce noise).
-Exact definitions are in `firmware/lib/nnfeatures/src/nnfeatures.h`. Values are not
+Append `_norm` (`hybrid_norm`, ...) to subtract the clip's loudest-frame level from the
+ln-energy features, removing recording volume (pitch bins and DCT terms are already
+volume-independent). Exact definitions are in `firmware/lib/nnfeatures/src/nnfeatures.h`. Values are not
 normalised in C; training computes mean/std and the firmware applies them.
 
 Try it: `python ml/features.py --mode hybrid data/training/ghost-1.wav`. Tests
@@ -127,6 +132,7 @@ pip install -r ml/requirements.txt
 python ml/extract_dataset.py                       # data/training/*.wav -> data/features.npz
 python ml/train.py                                 # compare mean / contours / hybrid features
 python ml/train.py --mode hybrid --holdout wife    # test on a voice it never trained on
+python ml/train.py --loso --seeds 3                # every speaker held out in turn, all modes
 python ml/evaluate.py ml/models/hybrid.npz         # confusion matrix: which words get mixed up
 python ml/export_weights.py ml/models/hybrid.npz   # -> firmware/lib/nnforward/src/nn_weights.h
 ```
@@ -144,3 +150,18 @@ so the accuracy you see is what the costume will get.
 
 Note: so far this is tested only on synthetic data (easy by construction), so it shows the
 pipeline works, not how well the features discriminate real words.
+
+## Results so far
+
+383 clean clips, 4 speakers, 10 words. Test = leave-one-speaker-out (train on three voices,
+test on the fourth), 3 seeds; chance is 10%:
+
+| Features | avg accuracy | | Features | avg accuracy |
+|---|---|---|---|---|
+| `mean` | 39% | | `mean_norm` | 41% |
+| `contours` | 35% | | `contours_norm` | 37% |
+| `hybrid` | 53% | | `hybrid_norm` | 54% |
+
+Timing information is what helps (`hybrid` >> `mean`); volume normalisation helps little.
+Weakest words (pooled hybrid_norm): candy 31%, spider 30%, other 41%; common confusions are
+spider->skull, cat<->bat, ghost<->witch. Re-run `ml/train.py --loso` as data grows.
