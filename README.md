@@ -92,9 +92,24 @@ silence; delete bad clips by hand (just remove the file). Run the tests with
 ## Features: one C implementation for training and the ESP32
 
 The Sparkle Motion Stick is an ESP32-S3 (dual-core Xtensa LX7, 240 MHz) with an I2S MEMS
-mic (WS/DATA/BCLK on GPIO12/13/14 per Adafruit's pinout; LED outputs on GPIO21/22). So the
-feature code is plain C with no dependencies, compiled for the board and, for training,
-into a shared library that `ml/features.py` loads. Spec: 16 kHz int16 → 512-sample Hann
-frames, hop 256 → power spectrum → 10 triangular mel bands (100–7600 Hz) → `ln(e + 1e-6)`
-→ mean over frames. Check a clip with `python ml/features.py data/training/ghost-1.wav`;
-tests (`python -m pytest ml/tests`) compare the C output to an independent numpy version.
+mic (WS/DATA/BCLK on GPIO12/13/14 per Adafruit's pinout; LED outputs on GPIO21/22; verify
+against the board). So the feature code is plain C with no dependencies, compiled for the
+board and, for training, into a shared library that `ml/features.py` loads.
+
+Front end (all modes): 1 s of 16 kHz audio -> 61 Hann frames (512, hop 256) -> 10 mel bands
+(100-7600 Hz). Three ways to turn that into the 10 input neurons, to be compared on real data:
+
+| Mode | The 10 inputs |
+|---|---|
+| `mean` | mean log-energy of each band over the clip. No timing information (baseline) |
+| `contours` | 5 loudness time-bins + 5 pitch time-bins |
+| `hybrid` | 4 loudness bins + 3 pitch bins + 3 2D-DCT coefficients (spectral tilt, bump, and tilt-over-time sweep) |
+
+*Loudness* = mean ln(total band energy) in the bin; *pitch* = energy-weighted mean band index
+scaled 0..1 (0.5 when the bin is >20 dB below the loudest, so silence doesn't produce noise).
+Exact definitions are in `firmware/lib/nnfeatures/src/nnfeatures.h`. Values are not
+normalised in C; training computes mean/std and the firmware applies them.
+
+Try it: `python ml/features.py --mode hybrid data/training/ghost-1.wav`. Tests
+(`python -m pytest ml/tests`) compare every mode to an independent numpy implementation and
+check the behaviours we care about (timing in loudness bins, rising vs falling sweeps).
