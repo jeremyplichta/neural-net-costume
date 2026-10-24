@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.DS_Store
+# Recorded audio is large and personal; keep the folder, not the clips
+data/training/*.wav
+!data/training/.gitkeep
