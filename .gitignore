@@ -6,3 +6,4 @@ __pycache__/
 # Recorded audio is large and personal; keep the folder, not the clips
 data/training/*.wav
 !data/training/.gitkeep
+ml/.build/

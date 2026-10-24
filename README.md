@@ -47,8 +47,12 @@ tools/       Python helpers (data collection now; feature extraction later)
   tests/
 data/
   training/           recorded clips: <word>-<n>.wav (git-ignored)
-ml/          training in PyTorch or Keras                         (planned)
-firmware/    ESP32 code: mic capture, features, inference, LEDs   (planned)
+ml/          feature extraction + training (PyTorch or Keras)
+  features.py         Python wrapper around the firmware's C feature extractor
+  tests/
+firmware/
+  lib/nnfeatures/     C feature extractor, shared by training AND the ESP32
+  (mic capture, inference, LEDs: planned)
 ```
 
 ## Roadmap
@@ -56,7 +60,7 @@ firmware/    ESP32 code: mic capture, features, inference, LEDs   (planned)
 - [x] Repo structure and README
 - [x] **Training-data recorder** (`tools/record_samples.py`)
 - [ ] Record a dataset (aim for 30+ clips per word, several voices/distances, lots of `other`)
-- [ ] Audio feature extractor → 10 inputs (e.g. mel/band energies; must be portable to ESP32)
+- [x] Audio feature extractor → 10 inputs: one C source (`firmware/lib/nnfeatures`) used by both training (via ctypes) and the ESP32
 - [ ] Train the 10-10-10-10 network (PyTorch or Keras), evaluate, export weights
 - [ ] ESP32 firmware: mic → features → inference
 - [ ] LED animation: light layers as activations propagate; highlight the winning output
@@ -84,3 +88,13 @@ Tagging speakers lets us hold one voice out as a test set later.
 Tips: vary distance, volume and speaker; record `other` with ordinary chatter, music and
 silence; delete bad clips by hand (just remove the file). Run the tests with
 `python -m pytest tools/tests`.
+
+## Features: one C implementation for training and the ESP32
+
+The Sparkle Motion Stick is an ESP32-S3 (dual-core Xtensa LX7, 240 MHz) with an I2S MEMS
+mic (WS/DATA/BCLK on GPIO12/13/14 per Adafruit's pinout; LED outputs on GPIO21/22). So the
+feature code is plain C with no dependencies, compiled for the board and, for training,
+into a shared library that `ml/features.py` loads. Spec: 16 kHz int16 → 512-sample Hann
+frames, hop 256 → power spectrum → 10 triangular mel bands (100–7600 Hz) → `ln(e + 1e-6)`
+→ mean over frames. Check a clip with `python ml/features.py data/training/ghost-1.wav`;
+tests (`python -m pytest ml/tests`) compare the C output to an independent numpy version.
