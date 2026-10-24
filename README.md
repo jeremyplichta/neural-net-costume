@@ -47,12 +47,17 @@ tools/       Python helpers (data collection now; feature extraction later)
   tests/
 data/
   training/           recorded clips: <word>-<n>.wav (git-ignored)
-ml/          feature extraction + training (PyTorch or Keras)
+ml/          feature extraction, training, evaluation, export (PyTorch)
   features.py         Python wrapper around the firmware's C feature extractor
+  extract_dataset.py  wavs -> data/features.npz
+  train.py            plain-PyTorch training loop; compares the feature modes
+  evaluate.py         accuracy + confusion matrix, using the firmware's C forward pass
+  export_weights.py   trained model -> nn_weights.h for the ESP32
   tests/
 firmware/
   lib/nnfeatures/     C feature extractor, shared by training AND the ESP32
-  (mic capture, inference, LEDs: planned)
+  lib/nnforward/      C forward pass of the 10-10-10-10 net, shared the same way
+  (mic capture, LEDs: planned)
 ```
 
 ## Roadmap
@@ -61,8 +66,9 @@ firmware/
 - [x] **Training-data recorder** (`tools/record_samples.py`)
 - [ ] Record a dataset (aim for 30+ clips per word, several voices/distances, lots of `other`)
 - [x] Audio feature extractor → 10 inputs: one C source (`firmware/lib/nnfeatures`) used by both training (via ctypes) and the ESP32
-- [ ] Train the 10-10-10-10 network (PyTorch or Keras), evaluate, export weights
-- [ ] ESP32 firmware: mic → features → inference
+- [x] Training / evaluation / export scaffold (PyTorch); tested on synthetic data only so far
+- [ ] Train on real recordings, compare feature modes, pick one
+- [ ] ESP32 firmware: mic → `nnf_extract` → `nn_forward`
 - [ ] LED animation: light layers as activations propagate; highlight the winning output
 - [ ] Build the shirt (bands, wiring, cord)
 
@@ -113,3 +119,28 @@ normalised in C; training computes mean/std and the firmware applies them.
 Try it: `python ml/features.py --mode hybrid data/training/ghost-1.wav`. Tests
 (`python -m pytest ml/tests`) compare every mode to an independent numpy implementation and
 check the behaviours we care about (timing in loudness bins, rising vs falling sweeps).
+
+## Training and exporting the network
+
+```bash
+pip install -r ml/requirements.txt
+python ml/extract_dataset.py                       # data/training/*.wav -> data/features.npz
+python ml/train.py                                 # compare mean / contours / hybrid features
+python ml/train.py --mode hybrid --holdout wife    # test on a voice it never trained on
+python ml/evaluate.py ml/models/hybrid.npz         # confusion matrix: which words get mixed up
+python ml/export_weights.py ml/models/hybrid.npz   # -> firmware/lib/nnforward/src/nn_weights.h
+```
+
+The network is `10 -> 10 -> 10 -> 10`: features are z-scored with the training set's mean and
+std, then two sigmoid hidden layers, then softmax over the words (3 weight matrices, 330
+parameters). `train.py` is a plain PyTorch loop, short enough to read top to bottom.
+
+**On the ESP32** (`firmware/lib/nnforward`): `nn_forward(&NN_WEIGHTS, features, act)` fills
+`act[4][10]`, every value in 0..1 and ready to use as LED brightness: `act[0]` the inputs
+(z of -2..+2 mapped to 0..1), `act[1]`, `act[2]` the hidden sigmoids, `act[3]` the softmax
+probabilities; it returns the winning output index. `nn_weights.h` also says which feature
+mode (`NN_FEATURE_MODE`) to pass to `nnf_extract`. Evaluation in Python runs this same C code,
+so the accuracy you see is what the costume will get.
+
+Note: so far this is tested only on synthetic data (easy by construction), so it shows the
+pipeline works, not how well the features discriminate real words.

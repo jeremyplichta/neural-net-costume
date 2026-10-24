@@ -9,16 +9,15 @@ Modes (see nnfeatures.h for the exact definitions); each gives 10 features:
     hybrid    4 loudness bins + 3 pitch bins + 3 2D-DCT coefficients
 """
 import ctypes
-import subprocess
 import sys
 import wave
 from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "firmware" / "lib" / "nnfeatures" / "src"
-BUILD_DIR = ROOT / "ml" / ".build"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cbuild import load_c_library  # noqa: E402
+
 NUM_FEATURES = 10
 SAMPLE_RATE = 16000
 CLIP_SAMPLES = 16000
@@ -37,14 +36,7 @@ _lib = None
 def _load():
     global _lib
     if _lib is None:
-        BUILD_DIR.mkdir(exist_ok=True)
-        ext = "dylib" if sys.platform == "darwin" else "so"
-        so = BUILD_DIR / f"libnnfeatures.{ext}"
-        srcs = [SRC_DIR / "nnfeatures.c", SRC_DIR / "nnfeatures.h"]
-        if not so.exists() or so.stat().st_mtime < max(s.stat().st_mtime for s in srcs):
-            subprocess.run(["cc", "-O2", "-shared", "-fPIC", "-I", str(SRC_DIR),
-                            str(srcs[0]), "-o", str(so), "-lm"], check=True)
-        lib = ctypes.CDLL(str(so))
+        lib = load_c_library("nnfeatures", "nnfeatures")
         lib.nnf_extract.argtypes = [ctypes.POINTER(ctypes.c_int16), ctypes.c_size_t, ctypes.c_int,
                                     ctypes.POINTER(ctypes.c_float)]
         lib.nnf_extract.restype = None
