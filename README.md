@@ -55,6 +55,7 @@ ml/          feature extraction, training, evaluation, export (PyTorch)
   train.py            plain-PyTorch training loop; compares the feature modes
   evaluate.py         accuracy + confusion matrix, using the firmware's C forward pass
   export_weights.py   trained model -> nn_weights.h for the ESP32
+  experiments/        throwaway prototypes used to choose designs (grid_alignment.py)
   tests/
 firmware/
   lib/nnfeatures/     C feature extractor, shared by training AND the ESP32
@@ -69,7 +70,9 @@ firmware/
 - [ ] Record a dataset (aim for 30+ clips per word, several voices/distances, lots of `other`)
 - [x] Audio feature extractor → 10 inputs: one C source (`firmware/lib/nnfeatures`) used by both training (via ctypes) and the ESP32
 - [x] Training / evaluation / export scaffold (PyTorch); tested on synthetic data only so far
-- [ ] Train on real recordings, compare feature modes, pick one
+- [x] Train on real recordings and compare feature modes (see Results)
+- [ ] Build the winning `grid` input into the C feature extractor (see HANDOFF.md)
+- [ ] Augmentation / public speech datasets for more training data
 - [ ] ESP32 firmware: mic → `nnf_extract` → `nn_forward`
 - [ ] LED animation: light layers as activations propagate; highlight the winning output
 - [ ] Build the shirt (bands, wiring, cord)
@@ -153,15 +156,20 @@ pipeline works, not how well the features discriminate real words.
 
 ## Results so far
 
-383 clean clips, 4 speakers, 10 words. Test = leave-one-speaker-out (train on three voices,
-test on the fourth), 3 seeds; chance is 10%:
+Everything is leave-one-speaker-out (train on three voices, test on the fourth), 10 classes
+(chance 10%), 383 clean clips from 4 speakers, mean of 3 seeds. Differences of ~4 points are
+noise. See [HANDOFF.md](HANDOFF.md) for the full state and next steps.
 
-| Features | avg accuracy | | Features | avg accuracy |
-|---|---|---|---|---|
-| `mean` | 39% | | `mean_norm` | 41% |
-| `contours` | 35% | | `contours_norm` | 37% |
-| `hybrid` | 53% | | `hybrid_norm` | 54% |
+| Network input | Inputs | Avg accuracy |
+|---|---|---|
+| `mean` (band averages, no timing) | 10 | 39% |
+| `contours` (loudness + pitch bins) | 10 | 35% |
+| `hybrid_norm` (loudness + pitch bins + DCT, volume removed) | 10 | 54% |
+| **coarse log-mel grid, 5 time x 4 bands** | **20** | **65%** |
+| grid 5x6 / 8x4 / 10x4 | 30 / 32 / 40 | 63% / 60% / 57% |
+| grid 5x10 / 10x10 / 5x20 | 50 / 100 / 100 | 61% / 60% / 54% |
 
-Timing information is what helps (`hybrid` >> `mean`); volume normalisation helps little.
-Weakest words (pooled hybrid_norm): candy 31%, spider 30%, other 41%; common confusions are
-spider->skull, cat<->bat, ghost<->witch. Re-run `ml/train.py --loso` as data grows.
+Takeaways: a plain coarse spectrogram beats hand-built summaries; ~12-32 inputs is a plateau
+and bigger inputs overfit this little data; onset alignment did not help (53-62% vs 65% for
+the plain full-second grid); volume normalisation helps little. Reproduce the grid/alignment
+numbers with `python ml/experiments/grid_alignment.py` (prototype, not yet in the firmware C code).
