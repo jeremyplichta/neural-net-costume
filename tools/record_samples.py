@@ -7,6 +7,7 @@ off). Clips are saved as data/training/<word>-<n>.wav (16 kHz, mono, 16-bit).
 
     python tools/record_samples.py                 # 10 takes of every word, shuffled rounds
     python tools/record_samples.py -w ghost witch  # only some words
+    python tools/record_samples.py -s wife         # ghost-wife-1.wav, ... (optional speaker tag)
     python tools/record_samples.py -n 25           # takes per word (this session)
     python tools/record_samples.py --list-devices
 """
@@ -29,9 +30,19 @@ BLOCK = 512  # 32 ms at 16 kHz
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "data" / "training"
 
 
-def next_index(out_dir, word):
-    pat = re.compile(rf"^{re.escape(word)}-(\d+)\.wav$")
-    nums = [int(m.group(1)) for f in out_dir.glob(f"{word}-*.wav") if (m := pat.match(f.name))]
+def clean_speaker(name):
+    """Lowercase letters/digits only, so '-' stays an unambiguous separator."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def stem(word, speaker=None):
+    return f"{word}-{speaker}" if speaker else word
+
+
+def next_index(out_dir, word, speaker=None):
+    base = stem(word, speaker)
+    pat = re.compile(rf"^{re.escape(base)}-(\d+)\.wav$")
+    nums = [int(m.group(1)) for f in out_dir.glob(f"{base}-*.wav") if (m := pat.match(f.name))]
     return max(nums, default=0) + 1
 
 
@@ -69,6 +80,8 @@ def main():
     ap.add_argument("-w", "--words", nargs="+", default=LABELS, choices=LABELS, metavar="WORD",
                     help=f"words to record (default: all of {', '.join(LABELS)})")
     ap.add_argument("-n", "--takes", type=int, default=10, help="takes per word this session")
+    ap.add_argument("-s", "--speaker", default=None,
+                    help="optional speaker name; files become <word>-<speaker>-<n>.wav")
     ap.add_argument("-o", "--out", type=Path, default=DEFAULT_OUT, help="output folder")
     ap.add_argument("-t", "--threshold", type=int, default=None,
                     help="trigger level 0-32767 (default: auto from ambient noise)")
@@ -76,6 +89,9 @@ def main():
     ap.add_argument("--list-devices", action="store_true")
     ap.add_argument("--no-shuffle", action="store_true", help="go through words in order")
     args = ap.parse_args()
+    speaker = clean_speaker(args.speaker) if args.speaker else None
+    if args.speaker and not speaker:
+        ap.error("--speaker must contain letters or digits")
 
     import sounddevice as sd  # imported late so --help and tests work without audio libs
     if args.list_devices:
@@ -115,7 +131,7 @@ def main():
                 clip = None
                 while clip is None:
                     clip = rec.feed(q.get())
-                path = args.out / f"{word}-{next_index(args.out, word)}.wav"
+                path = args.out / f"{stem(word, speaker)}-{next_index(args.out, word, speaker)}.wav"
                 save_wav(path, clip)
                 peak = int(np.abs(clip.astype(np.int32)).max())
                 print(f"    saved {path.name}  (peak {peak}{' - CLIPPING' if peak >= 32000 else ''})")

@@ -5,7 +5,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recorder import SAMPLE_RATE, TriggeredRecorder  # noqa: E402
-from record_samples import next_index, save_wav  # noqa: E402
+from record_samples import clean_speaker, next_index, save_wav  # noqa: E402
 
 BLOCK = 512
 
@@ -46,3 +46,12 @@ def test_next_index_and_wav(tmp_path):
     save_wav(tmp_path / "ghost-7.wav", np.zeros(10, dtype=np.int16))
     save_wav(tmp_path / "ghostly-9.wav", np.zeros(10, dtype=np.int16))
     assert next_index(tmp_path, "ghost") == 8
+
+
+def test_speaker_numbering_is_independent(tmp_path):
+    for n in ("ghost-1.wav", "ghost-2.wav", "ghost-wife-1.wav", "ghost-wife-4.wav"):
+        save_wav(tmp_path / n, np.zeros(10, dtype=np.int16))
+    assert next_index(tmp_path, "ghost") == 3
+    assert next_index(tmp_path, "ghost", "wife") == 5
+    assert next_index(tmp_path, "ghost", "kid") == 1
+    assert clean_speaker("Mary-Ann!") == "maryann"

@@ -77,7 +77,9 @@ start of the word is never chopped. Every clip is exactly 1 s, 16 kHz mono 16-bi
 
 Useful options: `-w ghost witch` (subset), `-n 25` (takes per word), `-t 4000` (manual
 trigger level; default is auto-calibrated from room noise), `-d <device>` /
-`--list-devices` (pick a mic), `--no-shuffle`.
+`--list-devices` (pick a mic), `--no-shuffle`, and `-s <name>` to tag a speaker (files become
+`ghost-wife-1.wav`; numbering is per speaker). Without `-s`, files are `ghost-1.wav`.
+Tagging speakers lets us hold one voice out as a test set later.
 
 Tips: vary distance, volume and speaker; record `other` with ordinary chatter, music and
 silence; delete bad clips by hand (just remove the file). Run the tests with
